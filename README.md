@@ -5,7 +5,7 @@
 
 Supported Methods:
 
-find
-findOne
-findById
-count
+- find
+- findOne
+- findById
+- count
