@@ -1,8 +1,16 @@
 
 
 import { Model, Document, Query } from 'mongoose';
+import util from 'util';
 
-const hashFunction = (query) => {
+const supportedOps = {
+    count: true,
+    findOne: true,
+    find: true,
+    findById: true,
+};
+
+const hashFunction = (query): string => {
     const {
         _mongooseOptions = {},
         _conditions = {},
@@ -10,10 +18,21 @@ const hashFunction = (query) => {
         model,
         op,
     } = query;
-    return `${model.modelName}|${op}|${JSON.stringify(_mongooseOptions)}|${JSON.stringify(_conditions)}|${JSON.stringify(_fields)}`
+    return `${model.modelName}|${op}|${JSON.stringify(_mongooseOptions)}|${JSON.stringify(_conditions)}|${JSON.stringify(_fields)}`;
+};
+
+export interface IOptions {
+    /**
+     * Time to live in milliseconds.
+     * Default is unlimited.
+     */
+    ttl?: number;
 }
 
-export default (Instance: Model<Document>, options = {}) => {
+export default <T extends Document = Document, M extends Model<T> = Model<T>>(Instance: M, options: IOptions = {}) => {
+    const {
+        ttl,
+    } = options;
 
     const map = new Map<string, Promise<any>>();
 
@@ -26,26 +45,47 @@ export default (Instance: Model<Document>, options = {}) => {
     
             if (propKey === 'exec') {
                 const key = hashFunction(receiver);
-                console.log('Executing .exec', key);
+                if (!supportedOps[receiver.op]) {
+                    return target[propKey];
+                }
+                // console.log('Executing .exec', key);
     
                 if (map.has(key)) {
-                    console.log('Returning from Cache!');
-                    return function() {
-                        return map.get(key);
-                    }
+                    // console.log('@mmc - resolving from cache.');
+                    return function(...args) {
+                        const promsieResult = map.get(key);
+                        if (args.length > 0) {
+                            const [ callback ] = args;
+                            util.callbackify(() => promsieResult)(callback);
+                            return;
+                        }
+                        return promsieResult;
+                    };
                 }
     
-                return function (...args) {
-                    const execution = target[propKey].apply(this, args)
+                return function(...args) {
+                    const execution: Promise<any> = target[propKey].apply(this);
                     map.set(key, execution);
-                    return execution;
-                }
+
+                    if (ttl != null) {
+                        setTimeout(() => {
+                            map.delete(key);
+                        }, ttl);
+                    }
+
+                    if (args.length > 0) {
+                        const [ callback ] = args;
+                        util.callbackify(() => execution)(callback);
+                    } else {
+                        return execution;
+                    }
+                };
             }
             return target[propKey];
         }
-    }
+    };
     
-    const handler: ProxyHandler<Model<Document>> = {
+    const handler: ProxyHandler<M> = {
         get(target, propKey) {
             const origMethod = target[propKey];
             if (propKey === 'Query') {
