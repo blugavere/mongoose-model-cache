@@ -8,8 +8,36 @@
 
 > Collection level batching and caching for mongoose queries, powered by es6 proxies.
 
-Supported Methods:
+# Usage
 
+```ts
+
+import mongoose from 'mongoose';
+import modelCache from 'mongoose-model-cache';
+
+// configure a schema somewhere
+const schema = new mongoose.Schema({
+  name: { type: String }
+});
+
+// register it to mongoose
+const Cat = mongoose.model('Cat', schema);
+
+const CatCache = modelCache(Cat, {
+    ttl: 5000 // cache for 5 seconds
+});
+
+(async () => {
+    const cats = await CatCache.find();
+    console.log(cats);
+})();
+
+// optionally, replace global instance
+mongoose.models['Cat'] = CatCache;
+
+```
+
+## Supported Methods:
 - find
 - findOne
 - findById
